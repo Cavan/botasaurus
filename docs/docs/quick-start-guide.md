@@ -428,9 +428,160 @@ if driver.exists(".popup"):
     driver.click(".popup .close")
 ```
 
-## Next Steps
+## File Naming and Output Control
 
-Now that you have the basics:
+One of the most common needs when testing scrapers is controlling where files are saved and avoiding overwrites. Here are the essential patterns:
+
+### Basic File Naming
+
+```python
+# Default: saves as output/my_scraper.json
+@browser
+def my_scraper(driver: Driver, url):
+    driver.get(url)
+    return {"title": driver.get_text("h1")}
+
+# Custom name: saves as output/custom_name.json
+@browser(output="custom_name")
+def my_scraper(driver: Driver, url):
+    driver.get(url) 
+    return {"title": driver.get_text("h1")}
+
+# No auto-save: handle manually
+@browser(output=None)
+def my_scraper(driver: Driver, url):
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    # Save manually with custom logic
+    from botasaurus import bt
+    bt.write_json(result, "my_custom_file.json")
+    return result
+```
+
+### Timestamped Files (Perfect for Testing)
+
+```python
+from datetime import datetime
+
+@browser(output=None)
+def test_scraper(driver: Driver, url):
+    """Generate unique files for each test run"""
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1"), "url": url}
+    
+    # Create timestamp-based filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"test_run_{timestamp}"
+    
+    from botasaurus import bt
+    bt.write_json(result, f"{filename}.json")
+    bt.write_csv([result], f"{filename}.csv")  # Note: CSV needs list
+    
+    print(f"Saved: {filename}.json and {filename}.csv")
+    return result
+
+# Each run creates new files:
+# test_run_20241201_143022.json
+# test_run_20241201_143530.json  
+# test_run_20241201_144105.json
+```
+
+### Multiple Output Formats
+
+```python
+from botasaurus import bt
+
+# Automatic multiple formats
+@browser(output_formats=[bt.Formats.JSON, bt.Formats.CSV, bt.Formats.EXCEL])
+def multi_format_scraper(driver: Driver, url):
+    driver.get(url)
+    return [{"title": driver.get_text("h1"), "url": url}]  # List for CSV compatibility
+
+# Creates:
+# - output/multi_format_scraper.json
+# - output/multi_format_scraper.csv
+# - output/multi_format_scraper.xlsx
+
+# Manual format control
+@browser(output=None)
+def manual_formats(driver: Driver, url):
+    driver.get(url)
+    data = [{"title": driver.get_text("h1"), "url": url}]
+    
+    # Save in different formats with custom names
+    from botasaurus import bt
+    bt.write_json(data, "results.json")
+    bt.write_csv(data, "results.csv") 
+    bt.write_excel({"data": data}, "results.xlsx")
+    
+    return data
+```
+
+### Organized File Structure
+
+```python
+from pathlib import Path
+
+@browser(output=None)
+def organized_scraper(driver: Driver, data):
+    """Create organized directory structure"""
+    
+    # Create organized directories
+    domain = data.get("domain", "unknown")
+    date = datetime.now().strftime("%Y-%m-%d")
+    
+    output_dir = Path(f"output/{date}/{domain}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    driver.get(data["url"])
+    result = {"title": driver.get_text("h1")}
+    
+    # Save in organized structure
+    filename = f"page_{data.get('page_num', 1)}.json"
+    file_path = output_dir / filename
+    
+    from botasaurus import bt
+    bt.write_json(result, str(file_path))
+    
+    return result
+
+# Creates structure like:
+# output/
+#   2024-12-01/
+#     example.com/
+#       page_1.json
+#       page_2.json
+```
+
+### Quick File Format Guide
+
+| Format | Best For | Example Usage |
+|--------|----------|---------------|
+| **JSON** | Complex nested data, APIs | `bt.write_json(data, "file.json")` |
+| **CSV** | Tabular data, Excel analysis | `bt.write_csv(list_data, "file.csv")` |
+| **Excel** | Multiple sheets, formatting | `bt.write_excel({"sheet1": data}, "file.xlsx")` |
+| **HTML** | Visual reports, sharing | `bt.write_file(html_content, "file.html")` |
+
+### Common File Naming Patterns
+
+```python
+# Pattern 1: Timestamp (testing)
+filename = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+# Pattern 2: Content-based (organization)  
+filename = f"{website_name}_{data_type}_{date}"
+
+# Pattern 3: Unique ID (no collisions)
+import uuid
+filename = f"scrape_{str(uuid.uuid4())[:8]}"
+
+# Pattern 4: Sequential (ordered)
+import glob
+count = len(glob.glob("output/scrape_*.json")) + 1
+filename = f"scrape_{count:04d}"  # scrape_0001, scrape_0002...
+```
 
 1. **Read the [Best Practices Guide](best-practices.md)** for advanced patterns
 2. **Check out [Scraper Examples](scraper-examples.md)** for complete implementations

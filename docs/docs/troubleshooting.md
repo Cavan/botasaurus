@@ -14,7 +14,7 @@ This guide helps you quickly resolve common issues when building scrapers with B
 2. [Element Detection Problems](#element-detection-problems)
 3. [Bot Detection and Blocking](#bot-detection-and-blocking)
 4. [Performance Issues](#performance-issues)
-5. [Memory and Resource Problems](#memory-and-resource-problems)
+5. [File and Output Issues](#file-and-output-issues)
 6. [Network and Proxy Issues](#network-and-proxy-issues)
 7. [Browser and Driver Issues](#browser-and-driver-issues)
 8. [Data Extraction Problems](#data-extraction-problems)
@@ -604,6 +604,462 @@ def scrape_with_monitoring(urls):
             gc.collect()
     
     return results
+```
+
+## File and Output Issues
+
+### File Overwriting Problems
+
+**Problem**: Default files keep getting overwritten during testing
+
+**Solutions**:
+
+```python
+# Solution 1: Timestamped files
+from datetime import datetime
+
+@browser(output=None)
+def test_safe_scraper(driver: Driver, url):
+    """Never overwrites previous test results"""
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    # Create unique filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Include milliseconds
+    filename = f"test_{timestamp}.json"
+    
+    from botasaurus import bt
+    bt.write_json(result, filename)
+    print(f"Saved to: {filename}")
+    
+    return result
+
+# Solution 2: Incremental numbering
+import glob
+import os
+
+@browser(output=None) 
+def incremental_scraper(driver: Driver, url):
+    """Uses incremental numbering"""
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    # Find next available number
+    existing_files = glob.glob("output/test_*.json")
+    if existing_files:
+        numbers = []
+        for file in existing_files:
+            try:
+                num = int(os.path.basename(file).split('_')[1].split('.')[0])
+                numbers.append(num)
+            except:
+                continue
+        next_num = max(numbers) + 1 if numbers else 1
+    else:
+        next_num = 1
+    
+    filename = f"test_{next_num:04d}.json"  # test_0001.json, test_0002.json...
+    
+    from botasaurus import bt
+    bt.write_json(result, filename)
+    print(f"Saved to: {filename}")
+    
+    return result
+
+# Solution 3: Check and backup existing files
+@browser(output=None)
+def backup_aware_scraper(driver: Driver, url):
+    """Creates backups of existing files"""
+    
+    import shutil
+    from pathlib import Path
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    filename = "results.json"
+    file_path = Path(filename)
+    
+    # Create backup if file exists
+    if file_path.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"results_backup_{timestamp}.json"
+        shutil.copy(file_path, backup_name)
+        print(f"Created backup: {backup_name}")
+    
+    from botasaurus import bt
+    bt.write_json(result, filename)
+    print(f"Saved to: {filename}")
+    
+    return result
+```
+
+### Output Format Errors
+
+**Problem**: CSV format errors or data not displaying correctly
+
+**Diagnostic**:
+
+```python
+def diagnose_output_format_issues(data):
+    """Diagnose common output format problems"""
+    
+    print("Data Type Analysis:")
+    print(f"- Data type: {type(data)}")
+    print(f"- Is list: {isinstance(data, list)}")
+    print(f"- Is dict: {isinstance(data, dict)}")
+    
+    if isinstance(data, list) and data:
+        print(f"- List length: {len(data)}")
+        print(f"- First item type: {type(data[0])}")
+        if isinstance(data[0], dict):
+            print(f"- First item keys: {list(data[0].keys())}")
+    elif isinstance(data, dict):
+        print(f"- Dict keys: {list(data.keys())}")
+    
+    # Check for common issues
+    issues = []
+    
+    if isinstance(data, dict) and not isinstance(data, list):
+        issues.append("CSV requires list of dictionaries, not single dict")
+    
+    if isinstance(data, list):
+        for i, item in enumerate(data):
+            if not isinstance(item, dict):
+                issues.append(f"Item {i} is not a dictionary: {type(item)}")
+            else:
+                # Check for nested data
+                for key, value in item.items():
+                    if isinstance(value, (dict, list)):
+                        issues.append(f"Item {i}, key '{key}' has nested data (not CSV-friendly)")
+    
+    if issues:
+        print("\nPotential Issues:")
+        for issue in issues:
+            print(f"- {issue}")
+    else:
+        print("\nNo obvious format issues detected")
+
+# Usage example
+@browser
+def problematic_scraper(driver: Driver, url):
+    driver.get(url)
+    
+    # This will cause CSV issues - single dict instead of list
+    result = {"title": driver.get_text("h1")}
+    
+    diagnose_output_format_issues(result)
+    
+    return result
+```
+
+**Solutions**:
+
+```python
+# Fix 1: Ensure list format for CSV
+@browser(output_formats=[bt.Formats.JSON, bt.Formats.CSV])
+def csv_friendly_scraper(driver: Driver, url):
+    driver.get(url)
+    
+    # Single item - wrap in list for CSV compatibility
+    result = {"title": driver.get_text("h1"), "url": url}
+    return [result]  # CSV needs list
+
+# Fix 2: Handle nested data for CSV
+@browser(output_formats=[bt.Formats.JSON, bt.Formats.CSV])  
+def flatten_for_csv(driver: Driver, url):
+    driver.get(url)
+    
+    # Complex nested data
+    result = {
+        "title": driver.get_text("h1"),
+        "metadata": {
+            "url": url,
+            "scraped_at": datetime.now().isoformat()
+        },
+        "links": [link.get_attribute("href") for link in driver.select_all("a")]
+    }
+    
+    # Flatten for CSV compatibility
+    flattened = {
+        "title": result["title"],
+        "url": result["metadata"]["url"],
+        "scraped_at": result["metadata"]["scraped_at"],
+        "links_count": len(result["links"]),
+        "first_link": result["links"][0] if result["links"] else None
+    }
+    
+    return [flattened]
+
+# Fix 3: Separate formats for different data structures
+@browser(output=None)
+def format_specific_scraper(driver: Driver, url):
+    driver.get(url)
+    
+    # Complex data structure
+    complex_data = {
+        "title": driver.get_text("h1"),
+        "metadata": {"url": url, "scraped_at": datetime.now().isoformat()},
+        "links": [{"text": link.get_text(), "href": link.get_attribute("href")} 
+                 for link in driver.select_all("a")]
+    }
+    
+    # Simple data for CSV
+    simple_data = [{
+        "title": complex_data["title"],
+        "url": url,
+        "links_count": len(complex_data["links"])
+    }]
+    
+    from botasaurus import bt
+    # Save complex data as JSON
+    bt.write_json(complex_data, "detailed_results.json")
+    
+    # Save simple data as CSV 
+    bt.write_csv(simple_data, "summary_results.csv")
+    
+    # Save both in Excel with different sheets
+    bt.write_excel({
+        "summary": simple_data,
+        "detailed": [complex_data],
+        "links": complex_data["links"]
+    }, "complete_results.xlsx")
+    
+    return complex_data
+```
+
+### Permission and Path Issues
+
+**Problem**: Cannot write to output directory or file paths
+
+**Diagnostic Script**:
+
+```python
+def diagnose_file_permissions():
+    """Diagnose file permission and path issues"""
+    
+    import os
+    from pathlib import Path
+    
+    print("File System Diagnostic:")
+    
+    # Check current directory
+    current_dir = Path.cwd()
+    print(f"Current directory: {current_dir}")
+    print(f"Current dir writable: {os.access(current_dir, os.W_OK)}")
+    
+    # Check output directory
+    output_dir = Path("output")
+    print(f"Output directory exists: {output_dir.exists()}")
+    
+    if output_dir.exists():
+        print(f"Output dir writable: {os.access(output_dir, os.W_OK)}")
+    else:
+        print("Attempting to create output directory...")
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            print("✓ Output directory created successfully")
+        except Exception as e:
+            print(f"✗ Failed to create output directory: {e}")
+    
+    # Test file creation
+    test_file = output_dir / "test_write.txt"
+    try:
+        test_file.write_text("test")
+        print("✓ Can write files to output directory")
+        test_file.unlink()  # Clean up
+    except Exception as e:
+        print(f"✗ Cannot write files: {e}")
+    
+    # Check disk space
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage(current_dir)
+        print(f"Disk space: {free // (1024**3)}GB free of {total // (1024**3)}GB total")
+    except Exception as e:
+        print(f"Could not check disk space: {e}")
+
+# Run diagnostic
+diagnose_file_permissions()
+```
+
+**Solutions**:
+
+```python
+# Solution 1: Ensure directory exists and handle permissions
+@browser(output=None)
+def safe_file_scraper(driver: Driver, url):
+    """Scraper with robust file handling"""
+    
+    import os
+    from pathlib import Path
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    # Ensure output directory exists
+    output_dir = Path("output")
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        # Fallback to current directory
+        output_dir = Path(".")
+        print("Warning: Using current directory due to permission issues")
+    
+    # Generate safe filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = output_dir / f"results_{timestamp}.json"
+    
+    # Try to write file with error handling
+    try:
+        from botasaurus import bt
+        bt.write_json(result, str(filename))
+        print(f"Successfully saved to: {filename}")
+    except PermissionError:
+        print(f"Permission denied writing to {filename}")
+        # Try alternative location
+        alt_filename = Path.home() / "botasaurus_results.json"
+        bt.write_json(result, str(alt_filename))
+        print(f"Saved to alternative location: {alt_filename}")
+    except Exception as e:
+        print(f"Unexpected error saving file: {e}")
+    
+    return result
+
+# Solution 2: Use temporary directory as fallback
+import tempfile
+
+@browser(output=None)
+def temp_fallback_scraper(driver: Driver, url):
+    """Scraper with temporary directory fallback"""
+    
+    driver.get(url)
+    result = {"title": driver.get_text("h1")}
+    
+    # Try preferred location first
+    preferred_path = Path("output/results.json")
+    
+    try:
+        preferred_path.parent.mkdir(parents=True, exist_ok=True)
+        from botasaurus import bt
+        bt.write_json(result, str(preferred_path))
+        print(f"Saved to: {preferred_path}")
+    except Exception as e:
+        print(f"Could not save to preferred location: {e}")
+        
+        # Fallback to temporary directory
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+            import json
+            json.dump(result, temp_file, indent=2)
+            print(f"Saved to temporary file: {temp_file.name}")
+    
+    return result
+```
+
+### Large File Handling
+
+**Problem**: Memory issues when processing large datasets
+
+**Solutions**:
+
+```python
+# Solution 1: Streaming/chunked output
+@browser(output=None)
+def chunked_output_scraper(driver: Driver, urls):
+    """Process large datasets in chunks"""
+    
+    import json
+    from pathlib import Path
+    
+    # Setup chunked output
+    output_file = Path("large_results.json")
+    chunk_size = 100
+    processed_count = 0
+    
+    # Initialize file with opening bracket
+    with open(output_file, 'w') as f:
+        f.write('[\n')
+    
+    for i, url in enumerate(urls):
+        try:
+            driver.get(url)
+            result = {
+                "url": url,
+                "title": driver.get_text("h1"),
+                "processed_at": datetime.now().isoformat()
+            }
+            
+            # Append to file
+            with open(output_file, 'a') as f:
+                if i > 0:  # Add comma for all but first item
+                    f.write(',\n')
+                json.dump(result, f, indent=2)
+            
+            processed_count += 1
+            
+            # Optional: Create checkpoint files
+            if processed_count % chunk_size == 0:
+                checkpoint_file = f"checkpoint_{processed_count}.json"
+                print(f"Checkpoint: {processed_count} items processed, saved {checkpoint_file}")
+                
+        except Exception as e:
+            print(f"Error processing {url}: {e}")
+            continue
+    
+    # Close the JSON array
+    with open(output_file, 'a') as f:
+        f.write('\n]')
+    
+    print(f"Completed: {processed_count} items processed")
+    return {"processed_count": processed_count, "output_file": str(output_file)}
+
+# Solution 2: Memory-efficient batch processing
+@browser(output=None)
+def memory_efficient_scraper(driver: Driver, urls):
+    """Process large datasets with memory management"""
+    
+    batch_size = 50
+    batch_results = []
+    batch_number = 1
+    
+    for i, url in enumerate(urls):
+        try:
+            driver.get(url)
+            
+            # Extract minimal data to conserve memory
+            result = {
+                "url": url,
+                "title": driver.get_text("h1")[:200],  # Limit text length
+                "links_count": len(driver.select_all("a"))
+            }
+            
+            batch_results.append(result)
+            
+            # Save batch when full
+            if len(batch_results) >= batch_size:
+                batch_filename = f"batch_{batch_number:04d}.json"
+                from botasaurus import bt
+                bt.write_json(batch_results, batch_filename)
+                print(f"Saved batch {batch_number}: {len(batch_results)} items")
+                
+                # Clear memory
+                batch_results = []
+                batch_number += 1
+                
+        except Exception as e:
+            print(f"Error processing {url}: {e}")
+            continue
+    
+    # Save remaining items
+    if batch_results:
+        batch_filename = f"batch_{batch_number:04d}.json"
+        from botasaurus import bt
+        bt.write_json(batch_results, batch_filename)
+        print(f"Saved final batch {batch_number}: {len(batch_results)} items")
+    
+    return {"total_batches": batch_number, "last_batch_size": len(batch_results)}
 ```
 
 ## Network and Proxy Issues

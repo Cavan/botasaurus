@@ -530,46 +530,448 @@ def prod_scraper(driver: Driver, data):
 
 ## Data Management
 
-### Structured Data Output
+### File Naming and Output Control
+
+Botasaurus provides flexible options for controlling where and how your scraped data is saved. By default, data is saved using the function name, but you can customize this behavior extensively.
+
+#### Basic File Naming
+
+```python
+from botasaurus import browser, Driver
+from datetime import datetime
+
+# Default: saves as output/scrape_products.json
+@browser
+def scrape_products(driver: Driver, data):
+    driver.get(data["url"])
+    return {"title": driver.get_text("h1")}
+
+# Custom filename: saves as output/my_custom_name.json
+@browser(output="my_custom_name")
+def scrape_products(driver: Driver, data):
+    driver.get(data["url"])
+    return {"title": driver.get_text("h1")}
+
+# No automatic saving - handle manually
+@browser(output=None)
+def scrape_products(driver: Driver, data):
+    driver.get(data["url"])
+    result = {"title": driver.get_text("h1")}
+    
+    # Handle output manually
+    from botasaurus import bt
+    bt.write_json(result, "custom_location.json")
+    return result
+```
+
+#### Timestamped Files for Testing
+
+When testing scrapers, you often want to generate multiple files without overwriting previous results:
 
 ```python
 from datetime import datetime
 import uuid
 
-@browser
-def structured_data_scraper(driver: Driver, data):
-    """Scraper that outputs well-structured data"""
+@browser(output=None)  # Disable automatic output
+def test_scraper(driver: Driver, data):
+    """Testing scraper that generates timestamped files"""
     
     driver.get(data["url"])
     
-    # Create structured output with metadata
     result = {
-        # Metadata
-        "scrape_id": str(uuid.uuid4()),
-        "scraped_at": datetime.utcnow().isoformat(),
         "url": data["url"],
-        "scraper_version": "1.0",
-        
-        # Core data
-        "data": {
+        "title": driver.get_text("h1"),
+        "scraped_at": datetime.utcnow().isoformat()
+    }
+    
+    # Generate timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"test_run_{timestamp}"
+    
+    # Or use UUID for uniqueness
+    unique_id = str(uuid.uuid4())[:8]
+    filename_uuid = f"test_run_{unique_id}"
+    
+    # Save with timestamp
+    from botasaurus import bt
+    bt.write_json(result, f"{filename}.json")
+    bt.write_csv(result, f"{filename}.csv")
+    
+    print(f"Saved results to {filename}.json and {filename}.csv")
+    
+    return result
+
+# Usage
+test_data = {"url": "https://example.com"}
+test_scraper(test_data)
+# Output files: test_run_20241201_143022.json, test_run_20241201_143022.csv
+```
+
+#### Dynamic File Naming
+
+Create dynamic filenames based on scraped data or input parameters:
+
+```python
+@browser(output=None)
+def scrape_with_dynamic_naming(driver: Driver, data):
+    """Scraper with dynamic file naming based on content"""
+    
+    driver.get(data["url"])
+    
+    title = driver.get_text("h1")
+    company = driver.get_text(".company-name") or "unknown"
+    
+    # Clean title for filename
+    import re
+    clean_title = re.sub(r'[^\w\s-]', '', title).strip()
+    clean_title = re.sub(r'[-\s]+', '_', clean_title)
+    
+    # Create filename from scraped data
+    filename = f"{company}_{clean_title}_{datetime.now().strftime('%Y%m%d')}"
+    
+    result = {
+        "title": title,
+        "company": company,
+        "url": data["url"],
+        "scraped_at": datetime.utcnow().isoformat()
+    }
+    
+    # Save with dynamic name
+    from botasaurus import bt
+    bt.write_json(result, f"{filename}.json")
+    
+    return result
+
+# Usage
+data = {"url": "https://company.com/job-posting"}
+scrape_with_dynamic_naming(data)
+# Output: TechCorp_Software_Engineer_Position_20241201.json
+```
+
+#### Batch Processing with Organized Output
+
+For processing multiple items while keeping files organized:
+
+```python
+@browser(output=None)
+def batch_scraper_with_organization(driver: Driver, data):
+    """Batch scraper with organized file structure"""
+    
+    import os
+    from pathlib import Path
+    
+    # Create organized directory structure
+    base_dir = Path("output")
+    date_dir = base_dir / datetime.now().strftime("%Y-%m-%d")
+    domain_dir = date_dir / data.get("domain", "unknown")
+    
+    # Create directories if they don't exist
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    
+    driver.get(data["url"])
+    
+    result = {
+        "url": data["url"],
+        "title": driver.get_text("h1"),
+        "domain": data.get("domain"),
+        "batch_id": data.get("batch_id"),
+        "scraped_at": datetime.utcnow().isoformat()
+    }
+    
+    # Generate organized filename
+    batch_id = data.get("batch_id", "default")
+    filename = f"{batch_id}_page_{data.get('page_num', 1)}"
+    
+    # Save in organized structure
+    from botasaurus import bt
+    file_path = domain_dir / f"{filename}.json"
+    bt.write_json(result, str(file_path))
+    
+    print(f"Saved to: {file_path}")
+    
+    return result
+
+# Usage for batch processing
+batch_data = [
+    {"url": "https://example.com/page1", "domain": "example", "batch_id": "batch_001", "page_num": 1},
+    {"url": "https://example.com/page2", "domain": "example", "batch_id": "batch_001", "page_num": 2},
+]
+
+for item in batch_data:
+    batch_scraper_with_organization(item)
+
+# Output structure:
+# output/
+#   2024-12-01/
+#     example/
+#       batch_001_page_1.json
+#       batch_001_page_2.json
+```
+
+### Output Formats and Options
+
+Botasaurus supports multiple output formats. Here's a comprehensive guide:
+
+#### Built-in Format Options
+
+```python
+from botasaurus import browser, bt, Driver
+
+# Save in multiple formats automatically
+@browser(output_formats=[bt.Formats.JSON, bt.Formats.CSV, bt.Formats.EXCEL])
+def multi_format_scraper(driver: Driver, data):
+    """Scraper that saves in multiple formats"""
+    
+    driver.get(data["url"])
+    
+    return {
+        "title": driver.get_text("h1"),
+        "description": driver.get_text(".description"),
+        "price": driver.get_text(".price"),
+        "url": data["url"]
+    }
+
+# This will create:
+# - output/multi_format_scraper.json
+# - output/multi_format_scraper.csv  
+# - output/multi_format_scraper.xlsx
+```
+
+#### Available Format Constants
+
+```python
+# All available format options
+formats_guide = {
+    "bt.Formats.JSON": "JavaScript Object Notation - good for nested data",
+    "bt.Formats.CSV": "Comma-separated values - good for tabular data", 
+    "bt.Formats.EXCEL": "Excel spreadsheet - good for analysis",
+    "bt.Formats.HTML": "HTML table - good for viewing in browser",
+    "bt.Formats.XML": "XML format - good for data exchange"
+}
+
+@browser(output_formats=[
+    bt.Formats.JSON,
+    bt.Formats.CSV, 
+    bt.Formats.EXCEL,
+    bt.Formats.HTML
+])
+def comprehensive_format_example(driver: Driver, data):
+    """Example showing all major formats"""
+    
+    driver.get(data["url"])
+    
+    # Structure data for best compatibility across formats
+    return [
+        {
+            "id": 1,
             "title": driver.get_text("h1"),
             "description": driver.get_text(".description"),
-            "metadata": {
-                "page_load_time": driver.run_js("return performance.timing.loadEventEnd - performance.timing.navigationStart"),
-                "total_elements": len(driver.select_all("*"))
-            }
-        },
-        
-        # Validation flags
-        "data_quality": {
-            "has_title": bool(driver.get_text("h1")),
-            "has_description": bool(driver.get_text(".description")),
-            "page_fully_loaded": driver.run_js("return document.readyState === 'complete'")
+            "price": driver.get_text(".price"),
+            "url": data["url"],
+            "scraped_at": datetime.utcnow().isoformat()
         }
+    ]
+```
+
+#### Manual Format Control
+
+For maximum control over output formatting:
+
+```python
+@browser(output=None)
+def manual_format_control(driver: Driver, data):
+    """Complete control over output formats and structure"""
+    
+    driver.get(data["url"])
+    
+    # Extract data
+    products = []
+    for product in driver.select_all(".product"):
+        products.append({
+            "name": product.get_text(".name"),
+            "price": product.get_text(".price"),
+            "rating": product.get_text(".rating"),
+            "image_url": product.get_attribute("img", "src")
+        })
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Save as JSON with pretty formatting
+    from botasaurus import bt
+    bt.write_json(products, f"products_{timestamp}.json", indent=2)
+    
+    # Save as CSV with custom headers
+    bt.write_csv(products, f"products_{timestamp}.csv")
+    
+    # Save as Excel with multiple sheets
+    excel_data = {
+        "products": products,
+        "summary": [{
+            "total_products": len(products),
+            "scraped_from": data["url"],
+            "scraped_at": datetime.utcnow().isoformat()
+        }]
     }
+    bt.write_excel(excel_data, f"products_report_{timestamp}.xlsx")
+    
+    # Save as HTML table
+    html_content = create_html_table(products, f"Products from {data['url']}")
+    bt.write_file(html_content, f"products_{timestamp}.html")
+    
+    # Save raw data for debugging
+    debug_data = {
+        "input_data": data,
+        "page_source_length": len(driver.page_source),
+        "elements_found": len(driver.select_all(".product")),
+        "products": products
+    }
+    bt.write_json(debug_data, f"debug_{timestamp}.json", indent=2)
+    
+    return products
+
+def create_html_table(data, title):
+    """Helper function to create HTML table"""
+    if not data:
+        return f"<html><body><h1>{title}</h1><p>No data found</p></body></html>"
+    
+    headers = list(data[0].keys())
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{title}</title>
+        <style>
+            table {{ border-collapse: collapse; width: 100%; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            tr:nth-child(even) {{ background-color: #f9f9f9; }}
+        </style>
+    </head>
+    <body>
+        <h1>{title}</h1>
+        <table>
+            <tr>
+                {''.join(f'<th>{header}</th>' for header in headers)}
+            </tr>
+    """
+    
+    for row in data:
+        html += "<tr>"
+        for header in headers:
+            value = str(row.get(header, ""))
+            html += f"<td>{value}</td>"
+        html += "</tr>"
+    
+    html += """
+        </table>
+    </body>
+    </html>
+    """
+    
+    return html
+```
+
+#### Advanced File Management Patterns
+
+```python
+class FileManager:
+    """Utility class for advanced file management"""
+    
+    def __init__(self, base_dir="output"):
+        self.base_dir = Path(base_dir)
+        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    def get_unique_filename(self, base_name, extension="json"):
+        """Generate unique filename to avoid overwrites"""
+        counter = 1
+        filename = f"{base_name}.{extension}"
+        file_path = self.base_dir / filename
+        
+        while file_path.exists():
+            filename = f"{base_name}_{counter}.{extension}"
+            file_path = self.base_dir / filename
+            counter += 1
+        
+        return str(file_path)
+    
+    def save_with_backup(self, data, filename):
+        """Save data and create backup of existing file"""
+        file_path = self.base_dir / filename
+        
+        # Create backup if file exists
+        if file_path.exists():
+            backup_path = self.base_dir / f"{filename}.backup_{self.session_id}"
+            file_path.rename(backup_path)
+            print(f"Created backup: {backup_path}")
+        
+        # Save new data
+        from botasaurus import bt
+        bt.write_json(data, str(file_path))
+        print(f"Saved to: {file_path}")
+
+@browser(output=None)
+def advanced_file_management_scraper(driver: Driver, data):
+    """Scraper with advanced file management"""
+    
+    file_manager = FileManager("output/advanced")
+    
+    driver.get(data["url"])
+    
+    result = {
+        "url": data["url"],
+        "title": driver.get_text("h1"),
+        "content": driver.get_text(".content"),
+        "links": [link.get_attribute("href") for link in driver.select_all("a[href]")]
+    }
+    
+    # Save with unique filename (no overwrites)
+    unique_file = file_manager.get_unique_filename("scrape_results")
+    from botasaurus import bt
+    bt.write_json(result, unique_file)
+    
+    # Save with backup (preserves previous version)
+    file_manager.save_with_backup(result, "latest_results.json")
+    
+    # Save summary in different formats
+    summary = {
+        "url": data["url"],
+        "title": result["title"],
+        "links_count": len(result["links"]),
+        "content_length": len(result["content"]),
+        "scraped_at": datetime.utcnow().isoformat()
+    }
+    
+    bt.write_csv([summary], "summary.csv")
+    bt.write_excel({"summary": [summary], "full_data": [result]}, "complete_report.xlsx")
     
     return result
 ```
+
+#### Quick Reference: File Naming Strategies
+
+```python
+# Strategy 1: Timestamp-based (good for testing)
+filename = f"scrape_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+# Strategy 2: Content-based (good for organization)
+filename = f"{domain}_{page_type}_{date}"
+
+# Strategy 3: UUID-based (guaranteed unique)
+import uuid
+filename = f"scrape_{str(uuid.uuid4())[:8]}"
+
+# Strategy 4: Sequential numbering
+import glob
+existing_files = glob.glob("output/scrape_*.json")
+next_number = len(existing_files) + 1
+filename = f"scrape_{next_number:04d}"  # scrape_0001.json
+
+# Strategy 5: Hierarchical organization
+filename = f"{category}/{subcategory}/{item_id}_{timestamp}"
+```
+
+This comprehensive file management system gives you complete control over where and how your scraped data is saved, preventing overwrites during testing and enabling organized data collection workflows.
 
 ### Data Cleaning and Validation
 

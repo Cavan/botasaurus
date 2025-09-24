@@ -126,3 +126,16 @@ AntiDetectDriver is a modified version of Selenium designed to evade detection b
   ```python
   is_detected = driver.is_bot_detected()
   ```
+
+---
+
+**Looking for More Advanced Page Actions?**
+
+This document covers basic interactions. For comprehensive documentation on advanced page actions like:
+- Tab management (opening, switching, closing tabs)
+- Page navigation (back, forward, refresh) 
+- Dynamic content handling (clicking tabs to load data)
+- Complex multi-step workflows
+- Session management across pages
+
+See the complete [Page Actions Guide](docs/page-actions-guide.md) in the documentation.

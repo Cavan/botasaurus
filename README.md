@@ -1340,6 +1340,8 @@ Botasaurus Driver provides several handy methods for web automation tasks, such 
   driver.close()  # Close the browser
   ```
 
+**For comprehensive page actions documentation** including tab management, navigation (back/forward), clicking tabs to load content, and complex workflows, see the [Page Actions Guide](docs/docs/page-actions-guide.md).
+
 ### How Can I Pause the Browser to Inspect Website when Developing the Scraper?
 
 To pause the scraper and wait for user input before proceeding, use `driver.prompt()`:
